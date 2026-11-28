@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Arsenal Image Mounter 构建期汉化脚本（快照日期：2026-11-28）。
 
