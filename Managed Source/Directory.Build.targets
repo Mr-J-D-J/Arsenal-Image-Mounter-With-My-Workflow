@@ -43,7 +43,8 @@
     <Exec Condition="!Exists('$(ZhCNMarker)')"
           WorkingDirectory="$(MSBuildThisFileDirectory).."
           Command="$(ZhCNPowerShell) -NoProfile -File &quot;.github/localization/zh-CN_2026-11-28/apply-zh-cn_2026-11-28.ps1&quot; -SourceRoot &quot;Managed Source&quot; -ReportDir &quot;localization-report/zh-cn_2026-11-28&quot;"
-          ContinueOnError="false" />
+          ContinueOnError="false"
+          IgnoreStandardErrorWarningFormat="true" />
 
     <!-- 只有脚本成功退出（Exec 没 throw）才会走到这里写标记。 -->
     <Touch Condition="!Exists('$(ZhCNMarker)')" Files="$(ZhCNMarker)" AlwaysCreate="true" />
