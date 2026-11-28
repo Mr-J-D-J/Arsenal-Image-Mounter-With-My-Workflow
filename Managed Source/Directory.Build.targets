@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ===========================================================================
+  构建期汉化钩子（zh-CN 快照 2026-11-28）—— 纯附加文件，不修改任何现有构建脚本
+  ===========================================================================
+  为什么放这里：
+    MSBuild 会自动导入与项目同一棵目录树上的 Directory.Build.targets。
+    本仓库所有托管项目都在 "Managed Source/" 下，因此 build.yml / build-all.yml
+    里的每一条 dotnet build / dotnet publish 都会自动经过这里，
+    无需改动工作流文件（同步主仓库时零冲突）。
+
+  工作方式：
+    1) 首次编译时，调用 .github/localization/zh-CN_2026-11-28/apply-zh-cn_2026-11-28.ps1
+       把工作区源码里的英文界面/报错/日志字面量就地替换成中文。
+    2) 成功后写一个标记文件 localization-report/zh-cn_2026-11-28/.applied，
+       同一 job 里后续项目 / 多个 TFM 不再重复执行（重复执行只会刷 MAPPING_STALE）。
+    3) 脚本的详细日志同时写进 GITHUB_STEP_SUMMARY 和报告目录，便于过时后溯源。
+
+  如果不想汉化：
+    - 删除本文件即可，完全不影响原构建；
+    - 或临时传 -p:ZH_CN_DISABLE=true（例如 dotnet publish -p:ZH_CN_DISABLE=true）。
+  如果同步上游后要重新应用：删除 localization-report/zh-cn_2026-11-28/.applied。
+  本机没有 pwsh 只有 Windows PowerShell 5.1 时：
+    dotnet build -p:ZH_PWSH=powershell
+  ===========================================================================
+-->
+<Project>
+
+  <!-- 只在首次真正编译时跑；设计时态构建（IDE 补全）和测试项目不跑。 -->
+  <Target Name="ApplyZhCNLocalization_2026_11_28"
+          BeforeTargets="BeforeBuild;BeforeCompile;PrepareForBuild"
+          Condition="'$(ZH_CN_DISABLE)' != 'true' and '$(DesignTimeBuild)' != 'true' and '$(MSBuildProjectName)' != 'TestProject'">
+
+    <PropertyGroup>
+      <ZhCNReportDir>$(MSBuildThisFileDirectory)..\localization-report\zh-cn_2026-11-28</ZhCNReportDir>
+      <ZhCNMarker>$(ZhCNReportDir)\.applied</ZhCNMarker>
+      <!-- CI（pwsh 7）默认即可；本地可 -p:ZH_PWSH=powershell 覆盖。 -->
+      <ZhCNPowerShell Condition="'$(ZH_PWSH)' == ''">pwsh</ZhCNPowerShell>
+      <ZhCNPowerShell Condition="'$(ZH_PWSH)' != ''">$(ZH_PWSH)</ZhCNPowerShell>
+    </PropertyGroup>
+
+    <!-- WorkingDirectory 设为仓库根，脚本参数就能和 CI 里的相对路径写法一致。 -->
+    <Exec Condition="!Exists('$(ZhCNMarker)')"
+          WorkingDirectory="$(MSBuildThisFileDirectory).."
+          Command="$(ZhCNPowerShell) -NoProfile -File &quot;.github/localization/zh-CN_2026-11-28/apply-zh-cn_2026-11-28.ps1&quot; -SourceRoot 'Managed Source' -ReportDir 'localization-report/zh-cn_2026-11-28'"
+          ContinueOnError="false" />
+
+    <!-- 只有脚本成功退出（Exec 没 throw）才会走到这里写标记。 -->
+    <Touch Condition="!Exists('$(ZhCNMarker)')" Files="$(ZhCNMarker)" AlwaysCreate="true" />
+
+  </Target>
+
+</Project>
