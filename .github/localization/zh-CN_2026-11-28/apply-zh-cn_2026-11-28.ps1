@@ -88,11 +88,9 @@ function Write-Log {
     # 时间戳用本地时间即可：CI 日志本身带 UTC 时间戳，这里方便与本地复现对照。
     $line = '[{0}] [{1,-6}] {2}' -f (Get-Date -Format 'HH:mm:ss'), $Level, $Message
     $script:LogLines.Add($line)
-    switch ($Level) {
-        'WARN'  { Write-Warning $line }
-        'ERROR' { Write-Error $line }
-        default { Write-Host $line }
-    }
+    # 全部走 stdout：MSBuild 的 Exec 会把 stderr 上的任何输出当作错误，
+    # 即使退出码是 0 也会抛 MSB3077（本地实测踩过）。等级标签已经在 $line 里。
+    Write-Output $line
 }
 
 Write-Log INFO "=============================================================="
@@ -251,10 +249,18 @@ $changedFiles = [System.Collections.Generic.List[string]]::new()
 # 正则说明：
 #   vb     : VB 字符串，内部双引号写成 ""。
 #   cs     : C# 普通字符串，支持 \. 转义；先匹配逐字字符串 @"..."，再匹配普通字符串。
-$rxVb = [regex]'"((?:[^"{}]|""|\{[^{}]*\}|\{\{|\}\})*)"'
+# 关键：字符串里允许出现单个 { 或 }（例如 "Volume{"）。早期版本把花括号排除在字符类外，
+# 遇到 "Volume{" 时匹配提前结束并跨行吞掉后续代码，把真实换行写成字面 \r\n，
+# 导致 CS0742/CS0106/CS1022（本地实测踩过）。占位符分支 \{[^{}]*\} 只用于容纳
+# 插值表达式内部的引号，普通花括号由 [^"] / [^"\\] 直接吸收。
+# 分支顺序很关键：占位符 \{[^{}]*\} 必须排在普通字符类之前，否则 "{" 先被 [^"] 吃掉，
+# 插值表达式内部的引号就会被误当成字符串结束符，导致匹配提前截断并吞掉后续代码。
+$rxVb = [regex]'"((?:\{[^{}]*\}|""|[^"])*)"'
 # C# 逐字字符串有三种前缀写法：@"..."、@$"..."、$@"..."，都要先于普通字符串匹配，
 # 否则 @"\\?\..." 会被当成普通字符串转义，把路径里的反斜杠越改越多。
-$rxCs = [regex]'(?:(?<verb>@"|@\$"|\$@")(?<vinner>(?:[^"{}]|""|\{[^{}]*\}|\{\{|\}\})*)")|(?<rinner>"(?:\\.|[^"\\{}]|\{[^{}]*\}|\{\{|\}\})*")'
+# 字符字面量 '\"' 里的引号不能当成字符串起点：把它作为第一个分支整体吞掉并原样跳过，
+# 否则从该引号开始匹配会跨行吞掉后续代码，写回时把真实换行变成字面 \r\n（本地实测踩过）。
+$rxCs = [regex]'(?<char>''(?:\\.|[^''\\])'')|(?:(?<verb>@"|@\$"|\$@")(?<vinner>(?:\{[^{}]*\}|""|[^"])*)")|(?<rinner>"(?:\{[^{}]*\}|\\.|[^"\\])*")'
 $rxResx = [regex]'<data name="(?<name>[^"]+)"[^>]*>\s*<value>(?<val>.*?)</value>'
 
 # 不处理测试项目和中间目录：测试不随产品发布，obj/bin 里是生成物。
@@ -313,6 +319,13 @@ foreach ($file in $allFiles) {
             $scanPos = $m.Index
 
             [void]$sb.Append($original.Substring($pos, $m.Index - $pos))
+
+            # C# 字符字面量（如 '"'、'\\'）原样保留，绝不参与汉化。
+            if (-not $kindVb -and $m.Groups['char'].Success) {
+                [void]$sb.Append($m.Value)
+                $pos = $m.Index + $m.Length
+                continue
+            }
 
             $openPrefix = '"'   # 默认普通字符串；逐字字符串要保留 @" / @$" / $@" 原前缀
             if ($kindVb) {
