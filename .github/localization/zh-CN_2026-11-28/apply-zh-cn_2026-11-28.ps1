@@ -48,12 +48,28 @@
 [CmdletBinding()]
 param(
     [string]$SourceRoot  = 'Managed Source',
-    [string]$MappingFile = (Join-Path $PSScriptRoot 'strings-zh-cn_2026-11-28.json'),
+    [string]$MappingFile = '',   # 默认值在下方运行时解析（不能在 param 里依赖 $PSScriptRoot，PS 5.1 可能为空白）
     [string]$ReportDir   = 'localization-report/zh-cn_2026-11-28',
     [switch]$DryRun
 )
 
 $ErrorActionPreference = 'Stop'
+
+# 解析映射文件默认路径：不能在 param 默认值里依赖 $PSScriptRoot ——
+# Windows PowerShell 5.1 用 `-File 相对路径.ps1` 启动时它可能是空白（本地实测踩过）。
+if ([string]::IsNullOrWhiteSpace($MappingFile)) {
+    $scriptDir = ''
+    if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+        $scriptDir = $PSScriptRoot
+    }
+    elseif ($MyInvocation.MyCommand -and $MyInvocation.MyCommand.Path) {
+        $scriptDir = Split-Path -Parent (Resolve-Path -LiteralPath $MyInvocation.MyCommand.Path).Path
+    }
+    if ([string]::IsNullOrWhiteSpace($scriptDir)) {
+        $scriptDir = '.github/localization/zh-CN_2026-11-28'   # 最后兜底：CI 工作区根目录
+    }
+    $MappingFile = Join-Path $scriptDir 'strings-zh-cn_2026-11-28.json'
+}
 
 # ---- 快照元信息：同步上游后排查"汉化为何失效"的第一手线索 -------------------
 $ScriptVersion  = '2026-11-28.1'
